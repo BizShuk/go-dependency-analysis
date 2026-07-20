@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/bizshuk/go-dependency-analysis/internal/graph"
-	"github.com/bizshuk/go-dependency-analysis/internal/policy"
+	"github.com/bizshuk/go-dependency-analysis/pkg/graph"
+	"github.com/bizshuk/go-dependency-analysis/pkg/policy"
 	"io"
 	"strings"
 )
@@ -27,6 +27,11 @@ func RenderText(w io.Writer, a graph.Analysis, d []policy.Diagnostic) error {
 		if _, err := fmt.Fprintf(w, "[%s] %s (%s)\n", x.Severity, x.Message, x.Provenance); err != nil {
 			return err
 		}
+		for _, evidence := range x.Evidence {
+			if _, err := fmt.Fprintf(w, "  - %s\n", evidence); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -39,7 +44,7 @@ func RenderJSONWithMetadata(w io.Writer, a graph.Analysis, d []policy.Diagnostic
 	if indent != "" {
 		enc.SetIndent("", indent)
 	}
-	return enc.Encode(Document{SchemaVersion: 1, Completeness: "complete", IncludeTests: includeTests, Analysis: a, Diagnostics: d})
+	return enc.Encode(Document{SchemaVersion: 2, Completeness: "complete", IncludeTests: includeTests, Analysis: a, Diagnostics: d})
 }
 func RenderMermaid(w io.Writer, a graph.Analysis) error {
 	if _, err := fmt.Fprintln(w, "flowchart LR"); err != nil {

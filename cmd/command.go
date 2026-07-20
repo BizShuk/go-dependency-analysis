@@ -4,10 +4,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/bizshuk/go-dependency-analysis/internal/discovery"
-	"github.com/bizshuk/go-dependency-analysis/internal/graph"
-	"github.com/bizshuk/go-dependency-analysis/internal/policy"
-	"github.com/bizshuk/go-dependency-analysis/internal/report"
+	"github.com/bizshuk/go-dependency-analysis/pkg/discovery"
+	"github.com/bizshuk/go-dependency-analysis/pkg/graph"
+	"github.com/bizshuk/go-dependency-analysis/pkg/policy"
+	"github.com/bizshuk/go-dependency-analysis/pkg/report"
 	"io"
 	"os"
 	"path/filepath"
@@ -19,7 +19,7 @@ const VERSION = "0.1.0"
 func Run(ctx context.Context, args []string, out, errout io.Writer) int {
 	fs := flag.NewFlagSet("dependency-analyzer", flag.ContinueOnError)
 	fs.SetOutput(errout)
-	workspace := fs.String("workspace", "", "go.work path")
+	workspace := fs.String("workspace", "", "go.work or go.mod path")
 	format := fs.String("format", "text", "text, json, or mermaid")
 	output := fs.String("output", "", "output file")
 	policyPath := fs.String("policy", "", "policy JSON")
@@ -64,15 +64,15 @@ func Run(ctx context.Context, args []string, out, errout io.Writer) int {
 		}
 		a.Packages = filtered
 	}
-	var d []policy.Diagnostic
+	config := policy.Config{}
 	if *policyPath != "" {
-		c, err := policy.Load(*policyPath)
-		if err != nil {
-			fmt.Fprintln(errout, err)
+		config, e = policy.Load(*policyPath)
+		if e != nil {
+			fmt.Fprintln(errout, e)
 			return 2
 		}
-		d = policy.Evaluate(a, c)
 	}
+	d := policy.Evaluate(a, config)
 	var target io.Writer = out
 	var file *os.File
 	if *output != "" {

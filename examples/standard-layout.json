@@ -1,0 +1,18 @@
+{
+  "layers": {},
+  "forbidden": [
+    {
+      "from": "example.com/project/internal/domain*",
+      "to": "example.com/project/cmd*"
+    },
+    {
+      "from": "example.com/project/internal/service*",
+      "to": "example.com/project/cmd*"
+    }
+  ],
+  "heavy": {},
+  "thresholds": {},
+  "severity": {
+    "layer-forbidden": "error"
+  }
+}

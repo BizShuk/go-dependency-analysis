@@ -22,13 +22,17 @@ Analyze the active workspace:
 go-dependency-analysis --format text
 ```
 
-Analyze an explicit workspace:
+Analyze an explicit workspace or a single module:
 
 ```bash
 go-dependency-analysis \
   --workspace /path/to/go.work \
   --format json \
   --json-indent='  '
+
+go-dependency-analysis \
+  --workspace /path/to/go.mod \
+  --format text
 ```
 
 Other output formats:
@@ -42,29 +46,42 @@ Apply a JSON policy:
 
 ```bash
 go-dependency-analysis \
-  --workspace /Users/shuk/projects/agentSDK/go.work \
-  --policy examples/agentsdk.json \
+  --workspace /path/to/go.work \
+  --policy examples/standard-layout.json \
   --fail-on error
 ```
 
-[`examples/agentsdk.json`](examples/agentsdk.json) is an AgentSDK-specific example, not a default policy.
+The policies under [`examples/`](examples/) illustrate common Go architecture boundaries and are not universal defaults.
 
 ## Analysis model
 
 The CLI uses `go env GOWORK`, `go work edit -json`, `go mod edit -json`, and `go list`. It distinguishes:
 
-- `go-tool-fact`: workspace membership, selected versions, import edges, cycles, version divergence, and direct requirements not observed by the invocation.
+- `go-tool-fact`: workspace membership, selected versions, recursive requested-version pressure, import edges, cycles, and direct requirements not observed by the invocation.
 - `policy-heuristic`: configured layer violations, forbidden edges, and heavy dependency paths.
 
 An `unused-direct-candidate` is not an instruction to remove a dependency. Check test-only imports, build tags, platform files, generated code, and tool dependencies first.
 
+A `multi-version` diagnostic summarizes recursive requests for multiple versions of the same dependency. Go Minimal Version Selection still selects one version per exact module path. For review purposes, the analyzer also groups semantic-import major paths such as `example.com/lib` and `example.com/lib/v2` into one dependency family while preserving their exact paths in JSON evidence. Intrinsic diagnostics run without `--policy`; a policy may override their severity.
+
 The analyzer excludes its own module from a target workspace by module identity. Use `--include-tool-module` to include it. Use `--exclude PATH[,PATH...]` for explicit workspace module exclusions.
+
+## Public packages
+
+The analysis pipeline is available as four standard-library-only Go packages:
+
+- `pkg/discovery`: collect workspace, module, requirement, replacement, and package facts from Go tooling.
+- `pkg/graph`: normalize facts and calculate cycles, reachability, and shortest paths.
+- `pkg/policy`: strictly load JSON policies and evaluate diagnostics.
+- `pkg/report`: render deterministic text, JSON schema v2, and Mermaid output.
+
+See [`docs/specs/2026-07-20-api-json-compatibility.md`](docs/specs/2026-07-20-api-json-compatibility.md) for compatibility guarantees.
 
 ## Flags
 
 | Flag | Purpose |
 | --- | --- |
-| `--workspace PATH` | Explicit `go.work`; defaults to the active workspace. |
+| `--workspace PATH` | Explicit `go.work` or `go.mod`; defaults to the active workspace. |
 | `--format text\|json\|mermaid` | Output format; defaults to text. |
 | `--output PATH` | Write atomically to a file. |
 | `--policy PATH` | Load a strict JSON policy. |
@@ -92,3 +109,11 @@ go build ./...
 ```
 
 The graph reflects the host Go version, OS/architecture, build constraints, and workspace selection. The CLI never modifies `go.mod`, `go.work`, policy files, or dependency versions.
+
+For platform matrices and build-constraint interpretation, see [`docs/specs/2026-07-20-build-constraints-platform-analysis.md`](docs/specs/2026-07-20-build-constraints-platform-analysis.md). Keep each platform result as a separate snapshot; do not treat an automatic union as one valid build graph.
+
+To validate release artifacts locally without publishing:
+
+```bash
+scripts/build-release.sh dev
+```

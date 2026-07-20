@@ -1,0 +1,26 @@
+{
+  "layers": {},
+  "forbidden": [
+    {
+      "from": "example.com/project/internal/domain*",
+      "to": "example.com/project/internal/adapter*"
+    },
+    {
+      "from": "example.com/project/internal/application*",
+      "to": "example.com/project/internal/adapter*"
+    },
+    {
+      "from": "example.com/project/internal/adapter/inbound*",
+      "to": "example.com/project/internal/adapter/outbound*"
+    },
+    {
+      "from": "example.com/project/internal/adapter/outbound*",
+      "to": "example.com/project/internal/adapter/inbound*"
+    }
+  ],
+  "heavy": {},
+  "thresholds": {},
+  "severity": {
+    "layer-forbidden": "error"
+  }
+}

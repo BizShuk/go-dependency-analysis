@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bizshuk/go-dependency-analysis/internal/graph"
+	"github.com/bizshuk/go-dependency-analysis/pkg/graph"
 )
 
 type Config struct {
@@ -52,10 +52,12 @@ func Evaluate(a graph.Analysis, c Config) []Diagnostic {
 	for _, cy := range graph.Cycles(a.ModuleEdges) {
 		out = append(out, Diagnostic{"module-cycle", severity("module-cycle", c), "module cycle: " + strings.Join(cy, " -> "), "go-tool-fact", cy})
 	}
-	for _, e := range a.ModuleEdges {
-		for _, f := range c.Forbidden {
-			if match(e.From, f.From) && match(e.To, f.To) {
-				out = append(out, Diagnostic{"layer-forbidden", severity("layer-forbidden", c), e.From + " imports forbidden " + e.To, "policy-heuristic", e.Evidence})
+	for _, edges := range [][]graph.Edge{a.ModuleEdges, a.PackageEdges} {
+		for _, e := range edges {
+			for _, f := range c.Forbidden {
+				if match(e.From, f.From) && match(e.To, f.To) {
+					out = append(out, Diagnostic{"layer-forbidden", severity("layer-forbidden", c), e.From + " imports forbidden " + e.To, "policy-heuristic", e.Evidence})
+				}
 			}
 		}
 	}
@@ -83,16 +85,29 @@ func Evaluate(a graph.Analysis, c Config) []Diagnostic {
 			}
 		}
 	}
-	selected := map[string]string{}
-	for _, m := range a.Modules {
-		if m.Version != "" {
-			selected[m.Path] = m.Version
+	for _, summary := range a.VersionSummaries {
+		evidence := []string{
+			"family: " + summary.Family,
+			"module paths: " + strings.Join(summary.Paths, ", "),
+			"requested versions: " + strings.Join(summary.Requested, ", "),
 		}
-	}
-	for _, d := range a.Direct {
-		if d.Direct && d.Owner != "" && selected[d.Path] != "" && selected[d.Path] != d.Version {
-			out = append(out, Diagnostic{"version-divergence", severity("version-divergence", c), d.Owner + " selects " + d.Path + " at " + selected[d.Path] + " but requires " + d.Version, "go-tool-fact", nil})
+		if len(summary.Selected) > 0 {
+			evidence = append(evidence, "selected versions: "+strings.Join(summary.Selected, ", "))
 		}
+		if len(summary.Replacements) > 0 {
+			evidence = append(evidence, "replacements: "+strings.Join(summary.Replacements, ", "))
+		}
+		for _, observation := range summary.Observations {
+			evidence = append(evidence, observation.Evidence)
+		}
+		sort.Strings(evidence)
+		out = append(out, Diagnostic{
+			Code:       "multi-version",
+			Severity:   severity("multi-version", c),
+			Message:    summary.Family + " has multiple requested versions or module majors; Go MVS still selects one version per exact module path",
+			Provenance: "go-tool-fact",
+			Evidence:   evidence,
+		})
 	}
 	for _, d := range a.Direct {
 		if !d.Direct {

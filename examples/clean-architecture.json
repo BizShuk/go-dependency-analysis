@@ -1,0 +1,26 @@
+{
+  "layers": {},
+  "forbidden": [
+    {
+      "from": "example.com/project/internal/entity*",
+      "to": "example.com/project/internal/usecase*"
+    },
+    {
+      "from": "example.com/project/internal/entity*",
+      "to": "example.com/project/internal/adapter*"
+    },
+    {
+      "from": "example.com/project/internal/usecase*",
+      "to": "example.com/project/internal/adapter*"
+    },
+    {
+      "from": "example.com/project/internal/adapter*",
+      "to": "example.com/project/cmd*"
+    }
+  ],
+  "heavy": {},
+  "thresholds": {},
+  "severity": {
+    "layer-forbidden": "error"
+  }
+}

@@ -1,7 +1,8 @@
 package graph
 
 import (
-	"github.com/bizshuk/go-dependency-analysis/internal/discovery"
+	"github.com/bizshuk/go-dependency-analysis/pkg/discovery"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -24,12 +25,32 @@ type Edge struct {
 	To       string   `json:"to"`
 	Evidence []string `json:"evidence,omitempty"`
 }
+type VersionObservation struct {
+	Origin           string `json:"origin"`
+	Requester        string `json:"requester"`
+	RequesterVersion string `json:"requester_version,omitempty"`
+	Path             string `json:"path"`
+	Requested        string `json:"requested,omitempty"`
+	Selected         string `json:"selected,omitempty"`
+	Direct           bool   `json:"direct"`
+	Evidence         string `json:"evidence,omitempty"`
+	Replacement      string `json:"replacement,omitempty"`
+}
+type ModuleVersionSummary struct {
+	Family       string               `json:"family"`
+	Paths        []string             `json:"paths"`
+	Requested    []string             `json:"requested"`
+	Selected     []string             `json:"selected,omitempty"`
+	Replacements []string             `json:"replacements,omitempty"`
+	Observations []VersionObservation `json:"observations"`
+}
 type Analysis struct {
-	Modules      []ModuleNode            `json:"modules"`
-	Packages     []PackageNode           `json:"packages"`
-	ModuleEdges  []Edge                  `json:"module_edges"`
-	PackageEdges []Edge                  `json:"package_edges"`
-	Direct       []discovery.Requirement `json:"direct_requirements"`
+	Modules          []ModuleNode            `json:"modules"`
+	Packages         []PackageNode           `json:"packages"`
+	ModuleEdges      []Edge                  `json:"module_edges"`
+	PackageEdges     []Edge                  `json:"package_edges"`
+	Direct           []discovery.Requirement `json:"direct_requirements"`
+	VersionSummaries []ModuleVersionSummary  `json:"module_versions"`
 }
 
 func Build(s discovery.Snapshot) Analysis {
@@ -41,6 +62,7 @@ func Build(s discovery.Snapshot) Analysis {
 			a.Direct = append(a.Direct, r)
 		}
 	}
+	a.VersionSummaries = buildVersionSummaries(s)
 	packageSeen := map[string]bool{}
 	for _, p := range s.Packages {
 		owner := p.Module
@@ -87,6 +109,99 @@ func Build(s discovery.Snapshot) Analysis {
 	})
 	return a
 }
+
+var semanticMajorSuffix = regexp.MustCompile(`/v([2-9][0-9]*|[1-9][0-9]+)$`)
+
+func moduleFamily(path string) string {
+	return semanticMajorSuffix.ReplaceAllString(path, "")
+}
+
+func buildVersionSummaries(s discovery.Snapshot) []ModuleVersionSummary {
+	selected := map[string]map[string]ModuleNode{}
+	for _, module := range s.Modules {
+		origin := module.Owner
+		if origin == "" && module.Main {
+			origin = module.Path
+		}
+		if selected[origin] == nil {
+			selected[origin] = map[string]ModuleNode{}
+		}
+		selected[origin][module.Path] = ModuleNode{Path: module.Path, Version: module.Version, Replacement: module.Replacement}
+	}
+
+	groups := map[string]*ModuleVersionSummary{}
+	seen := map[string]bool{}
+	for _, request := range s.Requests {
+		family := moduleFamily(request.Path)
+		summary := groups[family]
+		if summary == nil {
+			summary = &ModuleVersionSummary{Family: family}
+			groups[family] = summary
+		}
+		selectedModule := selected[request.Origin][request.Path]
+		replacement := replacementIdentity(selectedModule.Replacement)
+		observation := VersionObservation{
+			Origin: request.Origin, Requester: request.Requester, RequesterVersion: request.RequesterVersion,
+			Path: request.Path, Requested: request.Version, Selected: selectedModule.Version,
+			Direct: request.Direct, Evidence: request.Evidence, Replacement: replacement,
+		}
+		key := strings.Join([]string{observation.Origin, observation.Requester, observation.RequesterVersion, observation.Path, observation.Requested, observation.Selected, replacement, observation.Evidence}, "\x00")
+		if !seen[key] {
+			summary.Observations = append(summary.Observations, observation)
+			seen[key] = true
+		}
+		summary.Paths = appendUniqueString(summary.Paths, request.Path)
+		if request.Version != "" {
+			summary.Requested = appendUniqueString(summary.Requested, request.Version)
+		}
+		if selectedModule.Version != "" {
+			summary.Selected = appendUniqueString(summary.Selected, selectedModule.Version)
+		}
+		if replacement != "" {
+			summary.Replacements = appendUniqueString(summary.Replacements, replacement)
+		}
+	}
+
+	var summaries []ModuleVersionSummary
+	for _, summary := range groups {
+		sort.Strings(summary.Paths)
+		sort.Strings(summary.Requested)
+		sort.Strings(summary.Selected)
+		sort.Strings(summary.Replacements)
+		sort.Slice(summary.Observations, func(i, j int) bool {
+			a, b := summary.Observations[i], summary.Observations[j]
+			return strings.Join([]string{a.Path, a.Requested, a.Origin, a.Requester, a.Evidence}, "\x00") < strings.Join([]string{b.Path, b.Requested, b.Origin, b.Requester, b.Evidence}, "\x00")
+		})
+		if len(summary.Requested) > 1 || len(summary.Paths) > 1 {
+			summaries = append(summaries, *summary)
+		}
+	}
+	sort.Slice(summaries, func(i, j int) bool { return summaries[i].Family < summaries[j].Family })
+	return summaries
+}
+
+func replacementIdentity(replacement *discovery.Replacement) string {
+	if replacement == nil {
+		return ""
+	}
+	if replacement.Dir != "" {
+		return replacement.Dir
+	}
+	if replacement.Version != "" {
+		return replacement.Path + "@" + replacement.Version
+	}
+	return replacement.Path
+}
+
+func appendUniqueString(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
 func appendUniqueModule(ms []ModuleNode, m ModuleNode) []ModuleNode {
 	for i := range ms {
 		if ms[i].Path == m.Path && ms[i].Version == m.Version {

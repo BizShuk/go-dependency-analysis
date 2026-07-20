@@ -70,11 +70,88 @@ func (r fakeRunner) Run(_ context.Context, dir string, _ []string, name string, 
 	case command == "go list -m -json all":
 		path := r.module[canonicalPath(dir)]
 		return []byte(fmt.Sprintf(`{"Path":%q,"Main":true}`, path)), nil, nil
+	case command == "go mod graph":
+		return nil, nil, nil
 	case command == "go list -deps -json ./...":
 		path := r.module[canonicalPath(dir)]
 		return []byte(fmt.Sprintf(`{"ImportPath":%q,"Module":{"Path":%q}}`, path, path)), nil, nil
 	default:
 		return nil, nil, fmt.Errorf("unexpected command %s", command)
+	}
+}
+
+func TestParseModuleGraph(t *testing.T) {
+	direct := map[string]bool{"example.com/a": true}
+	got, err := parseModuleGraph("example.com/root example.com/a@v1.0.0\nexample.com/a@v1.0.0 example.com/b@v1.2.0\n", "example.com/root", direct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ModuleRequest{
+		{Origin: "example.com/root", Requester: "example.com/root", Path: "example.com/a", Version: "v1.0.0", Direct: true, Evidence: "example.com/root example.com/a@v1.0.0"},
+		{Origin: "example.com/root", Requester: "example.com/a", RequesterVersion: "v1.0.0", Path: "example.com/b", Version: "v1.2.0", Evidence: "example.com/a@v1.0.0 example.com/b@v1.2.0"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+}
+
+func TestParseModuleGraphRejectsMalformedLine(t *testing.T) {
+	if _, err := parseModuleGraph("example.com/root", "example.com/root", nil); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestDiscoverRejectsUnsupportedInput(t *testing.T) {
+	_, err := Discover(context.Background(), fakeRunner{}, Options{Workspace: filepath.Join(t.TempDir(), "modules.json")})
+	if err == nil || !strings.Contains(err.Error(), "go.work or go.mod") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+type moduleRunner struct {
+	dir      string
+	goMod    string
+	commands []string
+}
+
+func (r *moduleRunner) Run(_ context.Context, dir string, env []string, name string, args ...string) ([]byte, []byte, error) {
+	command := name + " " + strings.Join(args, " ")
+	r.commands = append(r.commands, command+"|"+strings.Join(env, "\x00"))
+	switch command {
+	case "go list -m -f {{.Path}}":
+		return []byte("example.com/root\n"), nil, nil
+	case "go mod edit -json":
+		return []byte(`{"Module":{"Path":"example.com/root"},"Require":[{"Path":"example.com/a","Version":"v1.0.0"}]}`), nil, nil
+	case "go list -m -json all":
+		return []byte("{\"Path\":\"example.com/root\",\"Main\":true}\n{\"Path\":\"example.com/a\",\"Version\":\"v1.1.0\"}\n"), nil, nil
+	case "go mod graph":
+		return []byte("example.com/root example.com/a@v1.0.0\n"), nil, nil
+	case "go list -deps -json ./...":
+		return []byte(`{"ImportPath":"example.com/root","Module":{"Path":"example.com/root"}}`), nil, nil
+	default:
+		return nil, nil, fmt.Errorf("unexpected command %s in %s", command, dir)
+	}
+}
+
+func TestDiscoverGoMod(t *testing.T) {
+	dir := t.TempDir()
+	runner := &moduleRunner{dir: dir, goMod: filepath.Join(dir, "go.mod")}
+	snapshot, err := Discover(context.Background(), runner, Options{Workspace: runner.goMod, IncludeToolModule: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := snapshot.Workspace.Modules, []string{canonicalPath(dir)}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("modules = %#v, want %#v", got, want)
+	}
+	if len(snapshot.Requests) != 1 || snapshot.Requests[0].Path != "example.com/a" || !snapshot.Requests[0].Direct {
+		t.Fatalf("requests = %#v", snapshot.Requests)
+	}
+	for _, command := range runner.commands {
+		if strings.HasPrefix(command, "go mod ") || strings.HasPrefix(command, "go list ") {
+			if !strings.Contains(command, "GOWORK=off") {
+				t.Fatalf("command missing GOWORK=off: %s", command)
+			}
+		}
 	}
 }
 
