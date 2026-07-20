@@ -1,0 +1,14 @@
+# TODO
+
+- [ ] Publish the first tagged release after repository remote setup
+- [ ] Add cross-platform release binaries and checksums
+- [ ] Define JSON schema compatibility guarantees
+
+## Policy examples
+
+- [ ] Add documented layer-policy examples for common Go architectures
+- [ ] Add build-tag and multi-platform analysis strategy
+
+## Archive
+
+- [x] Extract analyzer from AgentSDK into a standalone stdlib-only repository

@@ -1,0 +1,8 @@
+{
+  "forbidden": [
+    {
+      "from": "github.com/bizshuk/agentsdk/tui",
+      "to": "github.com/bizshuk/agentsdk"
+    }
+  ]
+}
