@@ -1,0 +1,15 @@
+{
+  "name": "go-dependency-analysis",
+  "version": "0.0.0",
+  "private": true,
+  "description": "唯讀 CLI，分析 Go workspace 的 module 與 package dependency graph，輸出 mermaid / json 報表",
+  "scripts": {
+    "dev": "go run .",
+    "test": "go test ./...",
+    "build": "go build -o bin/go-dependency-analysis .",
+    "deploy": "go install .",
+    "lint": "gofmt -l . && go vet ./...",
+    "clean": "rm -rf bin dist",
+    "run:release": "./scripts/build-release.sh"
+  }
+}
